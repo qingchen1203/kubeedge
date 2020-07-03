@@ -108,8 +108,12 @@ func (e *edged) initialNode() (*v1.Node, error) {
 		return nil, err
 	}
 
-	node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(int64(config.Config.MaxPods), resource.DecimalSI)
-	node.Status.Allocatable[v1.ResourcePods] = *resource.NewQuantity(int64(config.Config.MaxPods), resource.DecimalSI)
+	reservedPods := int64(constants.DefaultMaxPods)
+	if config.Config.MaxPods > 0 {
+		reservedPods = int64(config.Config.MaxPods)
+	}
+	node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(reservedPods, resource.DecimalSI)
+	node.Status.Allocatable[v1.ResourcePods] = *resource.NewQuantity(reservedPods, resource.DecimalSI)
 
 	return node, nil
 }
@@ -344,7 +348,11 @@ func (e *edged) setMemInfo(total, allocated v1.ResourceList) error {
 	mem := resource.MustParse(strconv.FormatInt(totalMem, 10) + "Mi")
 	total[v1.ResourceMemory] = mem.DeepCopy()
 
-	reservationMemory := resource.MustParse(config.Config.SystemReserved["memory"])
+	reservedMem := "0m"
+	if config.Config.SystemReserved["memory"] != "" {
+		reservedMem = config.Config.SystemReserved["memory"]
+	}
+	reservationMemory := resource.MustParse(reservedMem)
 	if mem.Cmp(reservationMemory) > 0 {
 		mem.Sub(reservationMemory)
 	}
@@ -360,9 +368,14 @@ func (e *edged) setCPUInfo(total, allocated v1.ResourceList) error {
 	cpu := resource.MustParse(fmt.Sprintf("%d", runtime.NumCPU()))
 	total[v1.ResourceCPU] = cpu.DeepCopy()
 
-	reservationCpu := resource.MustParse(config.Config.SystemReserved["cpu"])
-	if cpu.Cmp(reservationCpu) > 0 {
-		cpu.Sub(reservationCpu)
+	reservedCPU := "100Mi"
+	if config.Config.SystemReserved["cpu"] != "" {
+		reservedCPU = config.Config.SystemReserved["cpu"]
+	}
+	reservationCPU := resource.MustParse(reservedCPU)
+
+	if cpu.Cmp(reservationCPU) > 0 {
+		cpu.Sub(reservationCPU)
 	}
 	allocated[v1.ResourceCPU] = cpu.DeepCopy()
 
