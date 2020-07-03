@@ -35,6 +35,7 @@ const (
 	DefaultNodeStatusUpdateFrequency   = 10
 	DefaultImagePullProgressDeadline   = 60
 	DefaultRuntimeRequestTimeout       = 2
+	DefaultMaxPods                     = 110
 	DefaultImageGCHighThreshold        = 80
 	DefaultImageGCLowThreshold         = 40
 	DefaultMaximumDeadContainersPerPod = 1

@@ -38,6 +38,7 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
@@ -590,6 +591,12 @@ func newEdged(enable bool) (*edged, error) {
 		edgedconfig.Config.CgroupRoot = "/"
 	}
 
+	nodeAllocatableConfig := cm.NodeAllocatableConfig{
+		SystemReserved: v1.ResourceList{
+			v1.ResourceCPU:    resource.MustParse(edgedconfig.Config.SystemReserved["cpu"]),
+			v1.ResourceMemory: resource.MustParse(edgedconfig.Config.SystemReserved["memory"]),
+		},
+	}
 	containerManager, err := cm.NewContainerManager(mount.New(""),
 		ed.cadvisor,
 		cm.NodeConfig{
@@ -602,6 +609,7 @@ func newEdged(enable bool) (*edged, error) {
 			ExperimentalCPUManagerPolicy:      string(cpumanager.PolicyNone),
 			CgroupRoot:                        edgedconfig.Config.CgroupRoot,
 			ExperimentalTopologyManagerPolicy: "none",
+			NodeAllocatableConfig:             nodeAllocatableConfig,
 		},
 		false,
 		edgedconfig.Config.DevicePluginEnabled,

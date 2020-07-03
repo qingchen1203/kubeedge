@@ -177,6 +177,13 @@ type Edged struct {
 	// default false,
 	// Note: Can not use "omitempty" option, it will affect the output of the default configuration file
 	GPUPluginEnabled bool `json:"gpuPluginEnabled"`
+	// MaxPods indicates max num pods that can run on this edged
+	// default 110
+	MaxPods int32 `json:"maxPods,omitempty"`
+	// A set of ResourceName=ResourceQuantity (e.g. cpu=200m,memory=100Mi) pairs
+	// that describe resources reserved for non-kubernetes components.
+	// default cpu=0m,memory=100Mi
+	SystemReserved map[string]string
 	// ImageGCHighThreshold indicates image gc high threshold (percent)
 	// default 80
 	ImageGCHighThreshold int32 `json:"imageGCHighThreshold,omitempty"`
