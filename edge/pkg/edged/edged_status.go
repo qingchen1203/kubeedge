@@ -53,7 +53,6 @@ import (
 //GPUInfoQueryTool sets information monitoring tool location for GPU
 var GPUInfoQueryTool = "/var/IEF/nvidia/bin/nvidia-smi"
 var initNode v1.Node
-var reservationMemory = resource.MustParse(fmt.Sprintf("%dMi", 100))
 
 func (e *edged) initialNode() (*v1.Node, error) {
 	var node = &v1.Node{}
@@ -109,8 +108,8 @@ func (e *edged) initialNode() (*v1.Node, error) {
 		return nil, err
 	}
 
-	node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(110, resource.DecimalSI)
-	node.Status.Allocatable[v1.ResourcePods] = *resource.NewQuantity(110, resource.DecimalSI)
+	node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(int64(config.Config.MaxPods), resource.DecimalSI)
+	node.Status.Allocatable[v1.ResourcePods] = *resource.NewQuantity(int64(config.Config.MaxPods), resource.DecimalSI)
 
 	return node, nil
 }
@@ -348,6 +347,7 @@ func (e *edged) setMemInfo(total, allocated v1.ResourceList) error {
 	mem := resource.MustParse(strconv.FormatInt(totalMem, 10) + "Mi")
 	total[v1.ResourceMemory] = mem.DeepCopy()
 
+	reservationMemory := resource.MustParse(config.Config.SystemReserved["memory"])
 	if mem.Cmp(reservationMemory) > 0 {
 		mem.Sub(reservationMemory)
 	}
@@ -359,6 +359,15 @@ func (e *edged) setMemInfo(total, allocated v1.ResourceList) error {
 func (e *edged) setCPUInfo(total, allocated v1.ResourceList) error {
 	total[v1.ResourceCPU] = resource.MustParse(fmt.Sprintf("%d", runtime.NumCPU()))
 	allocated[v1.ResourceCPU] = total[v1.ResourceCPU].DeepCopy()
+
+	cpu := resource.MustParse(fmt.Sprintf("%d", runtime.NumCPU()))
+	total[v1.ResourceCPU] = cpu.DeepCopy()
+
+	reservationCpu := resource.MustParse(config.Config.SystemReserved["cpu"])
+	if cpu.Cmp(reservationCpu) > 0 {
+		cpu.Sub(reservationCpu)
+	}
+	allocated[v1.ResourceCPU] = cpu.DeepCopy()
 
 	return nil
 }

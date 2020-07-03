@@ -36,6 +36,7 @@ func NewDefaultEdgeCoreConfig() *EdgeCoreConfig {
 		hostnameOverride = constants.DefaultHostnameOverride
 	}
 	localIP, _ := util.GetLocalIP(hostnameOverride)
+	systemReserved := map[string]string{"cpu": "0m", "memory": "100Mi"}
 
 	return &EdgeCoreConfig{
 		TypeMeta: metav1.TypeMeta{
@@ -69,6 +70,8 @@ func NewDefaultEdgeCoreConfig() *EdgeCoreConfig {
 				InterfaceName:               constants.DefaultInterfaceName,
 				DevicePluginEnabled:         false,
 				GPUPluginEnabled:            false,
+				MaxPods:                     constants.DefaultMaxPods,
+				SystemReserved:              systemReserved,
 				ImageGCHighThreshold:        constants.DefaultImageGCHighThreshold,
 				ImageGCLowThreshold:         constants.DefaultImageGCLowThreshold,
 				MaximumDeadContainersPerPod: constants.DefaultMaximumDeadContainersPerPod,

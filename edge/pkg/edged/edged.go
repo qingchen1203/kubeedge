@@ -27,6 +27,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"net"
 	"net/http"
 	"os"
@@ -577,6 +578,12 @@ func newEdged(enable bool) (*edged, error) {
 		edgedconfig.Config.CgroupRoot = "/"
 	}
 
+	nodeAllocatableConfig := cm.NodeAllocatableConfig{
+		SystemReserved: v1.ResourceList{
+			v1.ResourceCPU:    resource.MustParse(edgedconfig.Config.SystemReserved["cpu"]),
+			v1.ResourceMemory: resource.MustParse(edgedconfig.Config.SystemReserved["memory"]),
+		},
+	}
 	containerManager, err := cm.NewContainerManager(mount.New(""),
 		ed.cadvisor,
 		cm.NodeConfig{
@@ -588,6 +595,7 @@ func newEdged(enable bool) (*edged, error) {
 			KubeletRootDir:               DefaultRootDir,
 			ExperimentalCPUManagerPolicy: string(cpumanager.PolicyNone),
 			CgroupRoot:                   edgedconfig.Config.CgroupRoot,
+			NodeAllocatableConfig:        nodeAllocatableConfig,
 		},
 		false,
 		edgedconfig.Config.DevicePluginEnabled,
