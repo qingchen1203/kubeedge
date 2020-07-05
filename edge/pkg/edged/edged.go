@@ -580,10 +580,19 @@ func newEdged(enable bool) (*edged, error) {
 
 	nodeAllocatableConfig := cm.NodeAllocatableConfig{
 		SystemReserved: v1.ResourceList{
-			v1.ResourceCPU:    resource.MustParse(edgedconfig.Config.SystemReserved["cpu"]),
-			v1.ResourceMemory: resource.MustParse(edgedconfig.Config.SystemReserved["memory"]),
+			v1.ResourceCPU:    resource.MustParse(constants.DefaultSystemReservedCPU),
+			v1.ResourceMemory: resource.MustParse(constants.DefaultSystemReservedMEM),
 		},
 	}
+	if edgedconfig.Config.SystemReserved != nil {
+		nodeAllocatableConfig = cm.NodeAllocatableConfig{
+			SystemReserved: v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse(edgedconfig.Config.SystemReserved["cpu"]),
+				v1.ResourceMemory: resource.MustParse(edgedconfig.Config.SystemReserved["memory"]),
+			},
+		}
+	}
+
 	containerManager, err := cm.NewContainerManager(mount.New(""),
 		ed.cadvisor,
 		cm.NodeConfig{

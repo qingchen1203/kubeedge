@@ -36,7 +36,7 @@ func NewDefaultEdgeCoreConfig() *EdgeCoreConfig {
 		hostnameOverride = constants.DefaultHostnameOverride
 	}
 	localIP, _ := util.GetLocalIP(hostnameOverride)
-	systemReserved := map[string]string{"cpu": "0m", "memory": "100Mi"}
+	systemReserved := map[string]string{"cpu": constants.DefaultSystemReservedCPU, "memory": constants.DefaultSystemReservedMEM}
 
 	return &EdgeCoreConfig{
 		TypeMeta: metav1.TypeMeta{
