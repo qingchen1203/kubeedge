@@ -183,7 +183,7 @@ type Edged struct {
 	// A set of ResourceName=ResourceQuantity (e.g. cpu=200m,memory=100Mi) pairs
 	// that describe resources reserved for non-kubernetes components.
 	// default cpu=0m,memory=100Mi
-	SystemReserved map[string]string
+	SystemReserved map[string]string `json:"systemReserved,omitempty"`
 	// ImageGCHighThreshold indicates image gc high threshold (percent)
 	// default 80
 	ImageGCHighThreshold int32 `json:"imageGCHighThreshold,omitempty"`

@@ -348,7 +348,7 @@ func (e *edged) setMemInfo(total, allocated v1.ResourceList) error {
 	mem := resource.MustParse(strconv.FormatInt(totalMem, 10) + "Mi")
 	total[v1.ResourceMemory] = mem.DeepCopy()
 
-	reservedMem := "0m"
+	reservedMem := constants.DefaultSystemReservedMEM
 	if config.Config.SystemReserved["memory"] != "" {
 		reservedMem = config.Config.SystemReserved["memory"]
 	}
@@ -368,7 +368,7 @@ func (e *edged) setCPUInfo(total, allocated v1.ResourceList) error {
 	cpu := resource.MustParse(fmt.Sprintf("%d", runtime.NumCPU()))
 	total[v1.ResourceCPU] = cpu.DeepCopy()
 
-	reservedCPU := "100Mi"
+	reservedCPU := constants.DefaultSystemReservedCPU
 	if config.Config.SystemReserved["cpu"] != "" {
 		reservedCPU = config.Config.SystemReserved["cpu"]
 	}

@@ -36,6 +36,8 @@ const (
 	DefaultImagePullProgressDeadline   = 60
 	DefaultRuntimeRequestTimeout       = 2
 	DefaultMaxPods                     = 110
+	DefaultSystemReservedCPU           = "0m"
+	DefaultSystemReservedMEM           = "100Mi"
 	DefaultImageGCHighThreshold        = 80
 	DefaultImageGCLowThreshold         = 40
 	DefaultMaximumDeadContainersPerPod = 1
