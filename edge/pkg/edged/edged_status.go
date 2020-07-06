@@ -351,11 +351,12 @@ func (e *edged) setMemInfo(total, allocated v1.ResourceList) error {
 	mem := resource.MustParse(strconv.FormatInt(totalMem, 10) + "Mi")
 	total[v1.ResourceMemory] = mem.DeepCopy()
 
-	reservedMem := constants.DefaultSystemReservedMEM
+	var  reservationMemory resource.Quantity
 	if config.Config.SystemReserved["memory"] != "" {
-		reservedMem = config.Config.SystemReserved["memory"]
+		reservationMemory = resource.MustParse(config.Config.SystemReserved["memory"])
+	}else{
+		reservationMemory = resource.MustParse(constants.DefaultSystemReservedMEM)
 	}
-	reservationMemory := resource.MustParse(reservedMem)
 	if mem.Cmp(reservationMemory) > 0 {
 		mem.Sub(reservationMemory)
 	}
