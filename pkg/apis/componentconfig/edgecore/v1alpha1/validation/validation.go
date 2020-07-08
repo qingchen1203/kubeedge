@@ -18,6 +18,7 @@ package validation
 
 import (
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"os"
 	"path"
 
@@ -72,6 +73,38 @@ func ValidateModuleEdged(e v1alpha1.Edged) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("CGroupDriver"), e.CGroupDriver,
 			"CGroupDriver value error"))
 	}
+	if e.MaxPods < 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("MaxPods"), e.MaxPods,
+			"MaxPods value error"))
+	}
+	if e.SystemReserved != nil {
+		var reservedValue resource.Quantity
+		var validateValue resource.Quantity
+		if e.SystemReserved["cpu"] == "" {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReserved[cpu]"), e.SystemReserved["cpu"],
+				"SystemReserved[cpu] value error"))
+		} else {
+			reservedValue = resource.MustParse(e.SystemReserved["cpu"])
+			validateValue = resource.MustParse("0m")
+			if reservedValue.Cmp(validateValue) < 0 {
+				allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReserved[cpu]"), e.SystemReserved["cpu"],
+					"SystemReserved[cpu] value less than 0m"))
+			}
+		}
+
+		if e.SystemReserved["memory"] == "" {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReserved[memory]"), e.SystemReserved["memory"],
+				"SystemReserved[memory] value error"))
+		} else {
+			reservedValue = resource.MustParse(e.SystemReserved["memory"])
+			validateValue = resource.MustParse("0Mi")
+			if reservedValue.Cmp(validateValue) < 0 {
+				allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReserved[memory]"), e.SystemReserved["memory"],
+					"SystemReserved[memory] value less than 0Mi"))
+			}
+		}
+	}
+
 	return allErrs
 }
 
