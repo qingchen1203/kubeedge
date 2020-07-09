@@ -487,7 +487,7 @@ func (dc *DownstreamController) initLocating() error {
 		err  error
 	)
 
-	set := labels.Set{manager.NodeRoleKey: manager.NodeRoleValue}
+	set := labels.Set{manager.NodeRoleKeyTest: manager.NodeRoleValue}
 	selector := labels.SelectorFromSet(set)
 	nodes, err := dc.kubeClient.CoreV1().Nodes().List(metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {

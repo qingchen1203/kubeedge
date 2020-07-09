@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	NodeRoleKey   = "node-role.kubernetes.io/edge"
-	NodeRoleValue = ""
+	NodeRoleKey     = "node-role.kubernetes.io/edge"
+	NodeRoleKeyTest = "node-role.kubernetes.io/edge-test"
+	NodeRoleValue   = ""
 )
 
 // NodesManager manage all events of nodes by SharedInformer
