@@ -75,7 +75,4 @@ const (
 	TokenDataName = "tokendata"
 
 	DomainName = "domainname"
-
-	// Default edgecore database path
-	DefaultEdgeDataPath = "/var/lib/kubeedge/edgecore.db"
 )
