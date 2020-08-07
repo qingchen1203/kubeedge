@@ -17,6 +17,7 @@ limitations under the License.
 package debug
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +26,17 @@ import (
 
 	"github.com/astaxie/beego/orm"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/scheme"
+	api "k8s.io/kubernetes/pkg/apis/core"
+	k8sprinters "k8s.io/kubernetes/pkg/printers"
+	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
+	"k8s.io/kubernetes/pkg/printers/storage"
 
 	"github.com/kubeedge/kubeedge/edge/pkg/common/dbm"
 	"github.com/kubeedge/kubeedge/edge/pkg/metamanager/dao"
@@ -57,12 +69,10 @@ keadm debug get all -o yaml`
 
 	// availableResources Convert flag to currently supports available Resource types in EdgeCore database.
 	availableResources = map[string]string{
-		"all":        "'pod','nodestatus','service','secret','configmap','endpoints'",
+		"all":        "'pod','service','secret','configmap','endpoints'",
 		"po":         "'pod'",
 		"pod":        "'pod'",
 		"pods":       "'pod'",
-		"node":       "'nodestatus'",
-		"nodes":      "'nodestatus'",
 		"svc":        "'service'",
 		"service":    "'service'",
 		"services":   "'service'",
@@ -77,16 +87,10 @@ keadm debug get all -o yaml`
 	}
 )
 
-// GetOptions contains the input to the get command.
-type GetOptions struct {
-	AllNamespace  bool
-	Namespace     string
-	OutputFormat  string
-	LabelSelector string
-	DataPath      string
-
-	PrintFlags *PrintFlags
-}
+const (
+	// DefaultErrorExitCode defines exit the code for failed action generally
+	DefaultErrorExitCode = 1
+)
 
 // NewCmdDebugGet returns keadm debug get command.
 func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
@@ -99,12 +103,13 @@ func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
 		Short:   debugGetShort,
 		Long:    debugGetLong,
 		Example: debugGetExample,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			err := getOption.Validate(args)
-			if err != nil {
-				return err
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := getOption.Validate(args); err != nil {
+				CheckErr(err, fatal)
 			}
-			return Execute(getOption, args, out)
+			if err := Execute(getOption, args, out); err != nil {
+				CheckErr(err, fatal)
+			}
 		},
 	}
 	addGetOtherFlags(cmd, getOption)
@@ -112,6 +117,42 @@ func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
 	return cmd
 }
 
+// fatal prints the message if set and then exits.
+func fatal(msg string, code int) {
+	if len(msg) > 0 {
+		// add newline if needed
+		if !strings.HasSuffix(msg, "\n") {
+			msg += "\n"
+		}
+
+		fmt.Fprint(os.Stderr, msg)
+	}
+	os.Exit(code)
+}
+
+// CheckErr formats a given error as a string and calls the passed handleErr
+// func with that string and an exit code.
+func CheckErr(err error, handleErr func(string, int)) {
+	switch err.(type) {
+	case nil:
+		return
+	default:
+		handleErr(err.Error(), DefaultErrorExitCode)
+	}
+}
+
+// GetOptions contains the input to the get command.
+type GetOptions struct {
+	AllNamespace  bool
+	Namespace     string
+	OutputFormat  string
+	LabelSelector string
+	DataPath      string
+
+	PrintFlags *PrintFlags
+}
+
+// addGetOtherFlags
 func addGetOtherFlags(cmd *cobra.Command, getOption *GetOptions) {
 	cmd.Flags().StringVarP(&getOption.Namespace, "namespace", "n", getOption.Namespace, "List the requested object(s) in specified namespaces")
 	cmd.Flags().StringVarP(&getOption.OutputFormat, "output", "o", getOption.OutputFormat, "Indicate the output format. Currently supports formats such as yaml|json|wide")
@@ -131,7 +172,7 @@ func NewGetOptions() *GetOptions {
 	return opts
 }
 
-//Validate checks the set of flags provided by the user.
+// Validate checks the set of flags provided by the user.
 func (g *GetOptions) Validate(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("You must specify the type of resource to get. ")
@@ -153,13 +194,13 @@ func (g *GetOptions) Validate(args []string) error {
 	if len(g.OutputFormat) > 0 {
 		g.OutputFormat = strings.ToLower(g.OutputFormat)
 		if !IsAllowedFormat(g.OutputFormat) {
-			return fmt.Errorf("OutputFormat %v not supportted. Currently supports formats such as yaml|json|wide", g.OutputFormat)
+			return fmt.Errorf("Invalid output format: %v, currently supports formats such as yaml|json|wide. ", g.OutputFormat)
 		}
 	}
 	g.PrintFlags.OutputFormat = &g.OutputFormat
 
 	if args[0] == "all" && len(args) >= 2 {
-		return fmt.Errorf("you must specify only one resource")
+		return fmt.Errorf("You must specify only one resource. ")
 	}
 
 	return nil
@@ -167,21 +208,614 @@ func (g *GetOptions) Validate(args []string) error {
 
 // Execute performs the get operation.
 func Execute(opts *GetOptions, args []string, out io.Writer) error {
-	var results []dao.Meta
-	var err error
-	//var printer printers.ResourcePrinter
 	resType := args[0]
 	resNames := args[1:]
-	results, err = QueryMetaFromDatabase(opts.AllNamespace, opts.Namespace, resType, resNames)
-	if err != nil {
-		return err
-	}
-	results, err = FilterSelector(results, opts.LabelSelector)
+	results, err := QueryMetaFromDatabase(opts.AllNamespace, opts.Namespace, resType, resNames)
 	if err != nil {
 		return err
 	}
 
+	if len(opts.LabelSelector) > 0 {
+		results, err = FilterSelector(results, opts.LabelSelector)
+		if err != nil {
+			return err
+		}
+	}
+
+	opts.PrintFlags.OutputFormat = &opts.OutputFormat
+	printer, err := opts.PrintFlags.ToPrinter()
+	if err != nil {
+		return err
+	}
+	printer, err = printers.NewTypeSetter(scheme.Scheme).WrapToPrinter(printer, nil)
+
+	if len(results) == 0 {
+		if _, err := fmt.Fprintf(out, "No resources found in %v namespace.\n", opts.Namespace); err != nil {
+			return err
+		}
+		return nil
+	}
+	if opts.OutputFormat == "" || opts.OutputFormat == "wide" {
+
+		return HumanReadablePrint(results, printer, out)
+	}
+
+	return JsonYamlPrint(results, printer, out)
+}
+
+// JsonYamlPrint Output the data in json|yaml format
+func JsonYamlPrint(results []dao.Meta, printer printers.ResourcePrinter, out io.Writer) error {
+	var obj runtime.Object
+	list := v1.List{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "List",
+			APIVersion: "v1",
+		},
+		ListMeta: metav1.ListMeta{},
+	}
+
+	podList, serviceList, secretList, configMapList, endPointsList, err := ParseMetaToV1List(results)
+	if err != nil {
+		return err
+	}
+
+	if len(podList.Items) != 0 {
+		if len(podList.Items) != 1 {
+			for _, info := range podList.Items {
+				o := info.DeepCopyObject()
+				list.Items = append(list.Items, runtime.RawExtension{Object: o})
+			}
+
+			listData, err := json.Marshal(list)
+			if err != nil {
+				return err
+			}
+
+			converted, err := runtime.Decode(unstructured.UnstructuredJSONScheme, listData)
+			if err != nil {
+				return err
+			}
+			obj = converted
+		} else {
+			obj = podList.Items[0].DeepCopyObject()
+		}
+		if err := PrintGeneric(printer, obj, out); err != nil {
+			return err
+		}
+	}
+	if len(serviceList.Items) != 0 {
+		if len(serviceList.Items) != 1 {
+			for _, info := range serviceList.Items {
+				o := info.DeepCopyObject()
+				list.Items = append(list.Items, runtime.RawExtension{Object: o})
+			}
+
+			listData, err := json.Marshal(list)
+			if err != nil {
+				return err
+			}
+
+			converted, err := runtime.Decode(unstructured.UnstructuredJSONScheme, listData)
+			if err != nil {
+				return err
+			}
+			obj = converted
+		} else {
+			obj = serviceList.Items[0].DeepCopyObject()
+		}
+		if err := PrintGeneric(printer, obj, out); err != nil {
+			return err
+		}
+	}
+	if len(secretList.Items) != 0 {
+		if len(secretList.Items) != 1 {
+			for _, info := range secretList.Items {
+				o := info.DeepCopyObject()
+				list.Items = append(list.Items, runtime.RawExtension{Object: o})
+			}
+
+			listData, err := json.Marshal(list)
+			if err != nil {
+				return err
+			}
+
+			converted, err := runtime.Decode(unstructured.UnstructuredJSONScheme, listData)
+			if err != nil {
+				return err
+			}
+			obj = converted
+		} else {
+			obj = secretList.Items[0].DeepCopyObject()
+		}
+		if err := PrintGeneric(printer, obj, out); err != nil {
+			return err
+		}
+	}
+	if len(configMapList.Items) != 0 {
+		if len(configMapList.Items) != 1 {
+			for _, info := range configMapList.Items {
+				o := info.DeepCopyObject()
+				list.Items = append(list.Items, runtime.RawExtension{Object: o})
+			}
+
+			listData, err := json.Marshal(list)
+			if err != nil {
+				return err
+			}
+
+			converted, err := runtime.Decode(unstructured.UnstructuredJSONScheme, listData)
+			if err != nil {
+				return err
+			}
+			obj = converted
+		} else {
+			obj = configMapList.Items[0].DeepCopyObject()
+		}
+		if err := PrintGeneric(printer, obj, out); err != nil {
+			return err
+		}
+	}
+	if len(endPointsList.Items) != 0 {
+		if len(endPointsList.Items) != 1 {
+			for _, info := range endPointsList.Items {
+				o := info.DeepCopyObject()
+				list.Items = append(list.Items, runtime.RawExtension{Object: o})
+			}
+
+			listData, err := json.Marshal(list)
+			if err != nil {
+				return err
+			}
+
+			converted, err := runtime.Decode(unstructured.UnstructuredJSONScheme, listData)
+			if err != nil {
+				return err
+			}
+			obj = converted
+		} else {
+			obj = endPointsList.Items[0].DeepCopyObject()
+		}
+		if err := PrintGeneric(printer, obj, out); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// HumanReadablePrint Output data in table form
+func HumanReadablePrint(results []dao.Meta, printer printers.ResourcePrinter, out io.Writer) error {
+	podList, serviceList, secretList, configMapList, endPointsList, err := ParseMetaToAPIList(results)
+	if err != nil {
+		return err
+	}
+
+	if len(podList.Items) != 0 {
+		talbe, err := ConvertDataToTable(podList)
+		if err != nil {
+			return err
+		}
+		if err := printer.PrintObj(talbe, out); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	if len(serviceList.Items) != 0 {
+		talbe, err := ConvertDataToTable(serviceList)
+		if err != nil {
+			return err
+		}
+		if err := printer.PrintObj(talbe, out); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	if len(secretList.Items) != 0 {
+		talbe, err := ConvertDataToTable(secretList)
+		if err != nil {
+			return err
+		}
+		if err := printer.PrintObj(talbe, out); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	if len(configMapList.Items) != 0 {
+		talbe, err := ConvertDataToTable(configMapList)
+		if err != nil {
+			return err
+		}
+		if err := printer.PrintObj(talbe, out); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	if len(endPointsList.Items) != 0 {
+		talbe, err := ConvertDataToTable(endPointsList)
+		if err != nil {
+			return err
+		}
+		if err := printer.PrintObj(talbe, out); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PrintGeneric Output object data to out stream through printer
+func PrintGeneric(printer printers.ResourcePrinter, obj runtime.Object, out io.Writer) error {
+	isList := meta.IsListType(obj)
+	if isList {
+		items, err := meta.ExtractList(obj)
+		if err != nil {
+			return err
+		}
+
+		// take the items and create a new list for display
+		list := &unstructured.UnstructuredList{
+			Object: map[string]interface{}{
+				"kind":       "List",
+				"apiVersion": "v1",
+				"metadata":   map[string]interface{}{},
+			},
+		}
+		if listMeta, err := meta.ListAccessor(obj); err == nil {
+			list.Object["metadata"] = map[string]interface{}{
+				"selfLink":        listMeta.GetSelfLink(),
+				"resourceVersion": listMeta.GetResourceVersion(),
+			}
+		}
+
+		for _, item := range items {
+			list.Items = append(list.Items, *item.(*unstructured.Unstructured))
+		}
+		if err := printer.PrintObj(list, out); err != nil {
+			return err
+		}
+	} else {
+		var value map[string]interface{}
+		data, err := json.Marshal(obj)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		if err := printer.PrintObj(&unstructured.Unstructured{Object: value}, out); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ConvertDataToTable Convert the data into table kind to simulate the data sent by api-server
+func ConvertDataToTable(obj runtime.Object) (runtime.Object, error) {
+	to := metav1.TableOptions{}
+	tc := storage.TableConvertor{TableGenerator: k8sprinters.NewTableGenerator().With(printersinternal.AddHandlers)}
+
+	return tc.ConvertToTable(context.TODO(), obj, &to)
+}
+
+// ParseMetaToAPIList Convert the data to the corresponding list type according to the apiserver usage type
+// Only use this type definition to get the table header processing handle,
+// and automatically obtain the ColumnDefinitions of the table according to the type
+// Only used by HumanReadablePrint.
+func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *api.SecretList, *api.ConfigMapList, *api.EndpointsList, error) {
+	podList := &api.PodList{}
+	serviceList := &api.ServiceList{}
+	secretList := &api.SecretList{}
+	configMapList := &api.ConfigMapList{}
+	endPointsList := &api.EndpointsList{}
+	value := make(map[string]interface{})
+
+	for _, v := range results {
+		switch v.Type {
+		case "pod":
+			pod := api.Pod{}
+
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			spec, err := json.Marshal(value["spec"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			status, err := json.Marshal(value["status"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &pod.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(spec, &pod.Spec); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(status, &pod.Status); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			pod.APIVersion = "v1"
+			pod.Kind = v.Type
+			podList.Items = append(podList.Items, pod)
+
+		case "service":
+			svc := api.Service{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			spec, err := json.Marshal(value["spec"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			status, err := json.Marshal(value["status"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &svc.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(spec, &svc.Spec); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(status, &svc.Status); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			svc.APIVersion = "v1"
+			svc.Kind = v.Type
+			serviceList.Items = append(serviceList.Items, svc)
+		case "secret":
+			secret := api.Secret{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			data, err := json.Marshal(value["data"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			typeTmp, err := json.Marshal(value["type"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &secret.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(data, &secret.Data); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(typeTmp, &secret.Type); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			secret.APIVersion = "v1"
+			secret.Kind = v.Type
+			secretList.Items = append(secretList.Items, secret)
+		case "configmap":
+			cmp := api.ConfigMap{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			data, err := json.Marshal(value["data"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &cmp.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(data, &cmp.Data); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			cmp.APIVersion = "v1"
+			cmp.Kind = v.Type
+			configMapList.Items = append(configMapList.Items, cmp)
+		case "endpoints":
+			ep := api.Endpoints{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			subsets, err := json.Marshal(value["subsets"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &ep.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(subsets, &ep.Subsets); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			ep.APIVersion = "v1"
+			ep.Kind = v.Type
+			endPointsList.Items = append(endPointsList.Items, ep)
+		default:
+			return nil, nil, nil, nil, nil, fmt.Errorf("Parsing failed, unrecognized type: %v. ", v.Type)
+		}
+	}
+
+	return podList, serviceList, secretList, configMapList, endPointsList, nil
+}
+
+// ParseMetaToV1List Convert the data to the corresponding list type
+// The type definition used by apiserver does not have the omitempty definition of json, will introduce a lot of useless null information
+// Use v1 type definition to get data here
+// Only used by JsonYamlPrint.
+func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.SecretList, *v1.ConfigMapList, *v1.EndpointsList, error) {
+
+	podList := &v1.PodList{}
+	serviceList := &v1.ServiceList{}
+	secretList := &v1.SecretList{}
+	configMapList := &v1.ConfigMapList{}
+	endPointsList := &v1.EndpointsList{}
+	value := make(map[string]interface{})
+
+	for _, v := range results {
+		switch v.Type {
+		case "pod":
+			pod := v1.Pod{}
+
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			spec, err := json.Marshal(value["spec"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			status, err := json.Marshal(value["status"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &pod.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(spec, &pod.Spec); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(status, &pod.Status); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			pod.APIVersion = "v1"
+			pod.Kind = v.Type
+			podList.Items = append(podList.Items, pod)
+
+		case "service":
+			svc := v1.Service{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			spec, err := json.Marshal(value["spec"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			status, err := json.Marshal(value["status"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &svc.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(spec, &svc.Spec); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(status, &svc.Status); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			svc.APIVersion = "v1"
+			svc.Kind = v.Type
+			serviceList.Items = append(serviceList.Items, svc)
+		case "secret":
+			secret := v1.Secret{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			data, err := json.Marshal(value["data"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			typeTmp, err := json.Marshal(value["type"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &secret.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(data, &secret.Data); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(typeTmp, &secret.Type); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			secret.APIVersion = "v1"
+			secret.Kind = v.Type
+			secretList.Items = append(secretList.Items, secret)
+		case "configmap":
+			cmp := v1.ConfigMap{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			data, err := json.Marshal(value["data"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &cmp.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(data, &cmp.Data); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			cmp.APIVersion = "v1"
+			cmp.Kind = v.Type
+			configMapList.Items = append(configMapList.Items, cmp)
+		case "endpoints":
+			ep := v1.Endpoints{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			subsets, err := json.Marshal(value["subsets"])
+			if err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(metadata, &ep.ObjectMeta); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			if err := json.Unmarshal(subsets, &ep.Subsets); err != nil {
+				return nil, nil, nil, nil, nil, err
+			}
+			ep.APIVersion = "v1"
+			ep.Kind = v.Type
+			endPointsList.Items = append(endPointsList.Items, ep)
+		default:
+			return nil, nil, nil, nil, nil, fmt.Errorf("Parsing failed, unrecognized type: %v. ", v.Type)
+		}
+	}
+
+	return podList, serviceList, secretList, configMapList, endPointsList, nil
 }
 
 // FileIsExist check file is exist
@@ -253,7 +887,6 @@ func QueryMetaFromDatabase(isAllNamespace bool, resNamePaces string, resType str
 					dao.MetaTableName,
 					strings.ReplaceAll(availableResources[resType], "'", ""),
 					resName))
-			fmt.Printf("result: %v", result)
 			if err != nil {
 				return nil, err
 			}
@@ -321,11 +954,9 @@ func FilterSelector(data []dao.Meta, selector string) ([]dao.Meta, error) {
 			flag = flag && (vLabel.(map[string]interface{})[sl.Key] == sl.Value)
 
 		}
-
 		if flag {
 			results = append(results, v)
 		}
-
 	}
 
 	return results, nil
@@ -347,7 +978,7 @@ func SplitSelectorParameters(args string) ([]Selector, error) {
 		if strings.Contains(label, "==") {
 			labs := strings.Split(label, "==")
 			if len(labs) != 2 {
-				return nil, fmt.Errorf("arguments in selector form may not have more than one \"==\". ")
+				return nil, fmt.Errorf("Arguments in selector form may not have more than one \"==\". ")
 			}
 			sel.Key = labs[0]
 			sel.Value = labs[1]
@@ -358,7 +989,7 @@ func SplitSelectorParameters(args string) ([]Selector, error) {
 		if strings.Contains(label, "!=") {
 			labs := strings.Split(label, "!=")
 			if len(labs) != 2 {
-				return nil, fmt.Errorf("arguments in selector form may not have more than one \"!=\". ")
+				return nil, fmt.Errorf("Arguments in selector form may not have more than one \"!=\". ")
 			}
 			sel.Key = labs[0]
 			sel.Value = labs[1]
@@ -369,7 +1000,7 @@ func SplitSelectorParameters(args string) ([]Selector, error) {
 		if strings.Contains(label, "=") {
 			labs := strings.Split(label, "=")
 			if len(labs) != 2 {
-				return nil, fmt.Errorf("arguments in selector may not have more than one \"=\". ")
+				return nil, fmt.Errorf("Arguments in selector may not have more than one \"=\". ")
 			}
 			sel.Key = labs[0]
 			sel.Value = labs[1]
