@@ -154,7 +154,7 @@ Genarate edgesite config by `edgesite --minconfig` and update:
   2) bothMqttMode: internal as well as external broker are enabled.
   3) externalMqttMode: only external broker is enabled.
 
-  Use mode field in [edgeSite.yaml](https://github.com/kubeedge/kubeedge/blob/master/edgesite/conf/edgeSite.yaml#L4) to select the desired mode.
+  Use mode field in edgesite.yaml to select the desired mode.
 
   ```yaml
   mqtt:
@@ -185,7 +185,7 @@ Run below steps:
 
 + Modify node.json
 
-  Replace `edge-node` in [node.json](https://github.com/kubeedge/kubeedge/blob/master/build/node.json#L5) file, to the id/name of the edgesite node. ID/Name should be same as used before while updating `edgesite.yaml`
+  Replace `edge-node` in [node.json](/build/node.json#L5) file, to the id/name of the edgesite node. ID/Name should be same as used before while updating `edgesite.yaml`
 
   ```json
     {
