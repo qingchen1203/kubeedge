@@ -107,7 +107,7 @@ func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
 			if err := getOption.Validate(args); err != nil {
 				CheckErr(err, fatal)
 			}
-			if err := Execute(getOption, args, out); err != nil {
+			if err := ExecuteGet(getOption, args, out); err != nil {
 				CheckErr(err, fatal)
 			}
 		},
@@ -206,8 +206,8 @@ func (g *GetOptions) Validate(args []string) error {
 	return nil
 }
 
-// Execute performs the get operation.
-func Execute(opts *GetOptions, args []string, out io.Writer) error {
+// ExecuteGet performs the get operation.
+func ExecuteGet(opts *GetOptions, args []string, out io.Writer) error {
 	resType := args[0]
 	resNames := args[1:]
 	results, err := QueryMetaFromDatabase(opts.AllNamespace, opts.Namespace, resType, resNames)
