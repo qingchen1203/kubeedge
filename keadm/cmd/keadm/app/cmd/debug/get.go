@@ -43,6 +43,19 @@ import (
 	edgecoreCfg "github.com/kubeedge/kubeedge/pkg/apis/componentconfig/edgecore/v1alpha1"
 )
 
+const (
+	ResourceTypeAll       = "all"
+	ResourceTypePod       = "pod"
+	ResourceTypeService   = "service"
+	ResourceTypeSecret    = "secret"
+	ResourceTypeConfigmap = "configmap"
+	ResourceTypeEndpoints = "endpoints"
+
+	OutputFormatWIDE = "wide"
+	OutputFormatJSON = "json"
+	OutputFormatYAML = "yaml"
+)
+
 var (
 	debugGetLong = `
 Prints a table of the most important information about the specified resource from the local database of the edge node.`
@@ -60,7 +73,7 @@ keadm debug get configmap web -n default -o yaml
 keadm debug get all -o yaml`
 
 	// allowedFormats Currently supports formats such as yaml|json|wide
-	allowedFormats = []string{"yaml", "json", "wide"}
+	allowedFormats = []string{OutputFormatYAML, OutputFormatJSON, OutputFormatWIDE}
 
 	// availableResources Convert flag to currently supports available Resource types in EdgeCore database.
 	availableResources = map[string]string{
@@ -178,7 +191,7 @@ func (g *GetOptions) Validate(args []string) error {
 	if len(g.DataPath) == 0 {
 		fmt.Printf("Not specified the EdgeCore database path, use the default path: %v. ", g.DataPath)
 	}
-	if !FileExists(g.DataPath) {
+	if !IsFileExist(g.DataPath) {
 		return fmt.Errorf("EdgeCore database file %v not exist. ", g.DataPath)
 	}
 
@@ -194,7 +207,7 @@ func (g *GetOptions) Validate(args []string) error {
 	}
 	g.PrintFlags.OutputFormat = &g.OutputFormat
 
-	if args[0] == "all" && len(args) >= 2 {
+	if args[0] == ResourceTypeAll && len(args) >= 2 {
 		return fmt.Errorf("You must specify only one resource. ")
 	}
 
@@ -230,16 +243,15 @@ func ExecuteGet(opts *GetOptions, args []string, out io.Writer) error {
 		}
 		return nil
 	}
-	if opts.OutputFormat == "" || opts.OutputFormat == "wide" {
-
+	if opts.OutputFormat == "" || opts.OutputFormat == OutputFormatWIDE {
 		return HumanReadablePrint(results, printer, out)
 	}
 
-	return JsonYamlPrint(results, printer, out)
+	return JSONYamlPrint(results, printer, out)
 }
 
-// JsonYamlPrint Output the data in json|yaml format
-func JsonYamlPrint(results []dao.Meta, printer printers.ResourcePrinter, out io.Writer) error {
+// JSONYamlPrint Output the data in json|yaml format
+func JSONYamlPrint(results []dao.Meta, printer printers.ResourcePrinter, out io.Writer) error {
 	var obj runtime.Object
 	list := v1.List{
 		TypeMeta: metav1.TypeMeta{
@@ -516,7 +528,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 
 	for _, v := range results {
 		switch v.Type {
-		case "pod":
+		case ResourceTypePod:
 			pod := api.Pod{}
 
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
@@ -547,7 +559,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			pod.Kind = v.Type
 			podList.Items = append(podList.Items, pod)
 
-		case "service":
+		case ResourceTypeService:
 			svc := api.Service{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -576,7 +588,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			svc.APIVersion = "v1"
 			svc.Kind = v.Type
 			serviceList.Items = append(serviceList.Items, svc)
-		case "secret":
+		case ResourceTypeSecret:
 			secret := api.Secret{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -605,7 +617,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			secret.APIVersion = "v1"
 			secret.Kind = v.Type
 			secretList.Items = append(secretList.Items, secret)
-		case "configmap":
+		case ResourceTypeConfigmap:
 			cmp := api.ConfigMap{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -627,7 +639,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			cmp.APIVersion = "v1"
 			cmp.Kind = v.Type
 			configMapList.Items = append(configMapList.Items, cmp)
-		case "endpoints":
+		case ResourceTypeEndpoints:
 			ep := api.Endpoints{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -660,9 +672,8 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 // ParseMetaToV1List Convert the data to the corresponding list type
 // The type definition used by apiserver does not have the omitempty definition of json, will introduce a lot of useless null information
 // Use v1 type definition to get data here
-// Only used by JsonYamlPrint.
+// Only used by JSONYamlPrint.
 func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.SecretList, *v1.ConfigMapList, *v1.EndpointsList, error) {
-
 	podList := &v1.PodList{}
 	serviceList := &v1.ServiceList{}
 	secretList := &v1.SecretList{}
@@ -672,7 +683,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 
 	for _, v := range results {
 		switch v.Type {
-		case "pod":
+		case ResourceTypePod:
 			pod := v1.Pod{}
 
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
@@ -703,7 +714,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			pod.Kind = v.Type
 			podList.Items = append(podList.Items, pod)
 
-		case "service":
+		case ResourceTypeService:
 			svc := v1.Service{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -732,7 +743,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			svc.APIVersion = "v1"
 			svc.Kind = v.Type
 			serviceList.Items = append(serviceList.Items, svc)
-		case "secret":
+		case ResourceTypeSecret:
 			secret := v1.Secret{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -761,7 +772,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			secret.APIVersion = "v1"
 			secret.Kind = v.Type
 			secretList.Items = append(secretList.Items, secret)
-		case "configmap":
+		case ResourceTypeConfigmap:
 			cmp := v1.ConfigMap{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -783,7 +794,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			cmp.APIVersion = "v1"
 			cmp.Kind = v.Type
 			configMapList.Items = append(configMapList.Items, cmp)
-		case "endpoints":
+		case ResourceTypeEndpoints:
 			ep := v1.Endpoints{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -813,8 +824,8 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 	return podList, serviceList, secretList, configMapList, endPointsList, nil
 }
 
-// FileIsExist check file is exist
-func FileExists(path string) bool {
+// IsFileExist check file is exist
+func IsFileExist(path string) bool {
 	_, err := os.Stat(path)
 
 	return err == nil || !os.IsNotExist(err)
@@ -863,7 +874,7 @@ func QueryMetaFromDatabase(isAllNamespace bool, resNamePaces string, resType str
 	var results []dao.Meta
 
 	if isAllNamespace {
-		if resType == "all" || len(resNames) == 0 {
+		if resType == ResourceTypeAll || len(resNames) == 0 {
 			results, err := dao.QueryMetaByRaw(
 				fmt.Sprintf("select * from %v where %v.type in (%v)",
 					dao.MetaTableName,
@@ -890,7 +901,7 @@ func QueryMetaFromDatabase(isAllNamespace bool, resNamePaces string, resType str
 
 		return results, nil
 	}
-	if resType == "all" || len(resNames) == 0 {
+	if resType == ResourceTypeAll || len(resNames) == 0 {
 		results, err := dao.QueryMetaByRaw(
 			fmt.Sprintf("select * from %v where %v.key like '%v/%%' and  %v.type in (%v)",
 				dao.MetaTableName,
@@ -947,7 +958,6 @@ func FilterSelector(data []dao.Meta, selector string) ([]dao.Meta, error) {
 				continue
 			}
 			flag = flag && (vLabel.(map[string]interface{})[sl.Key] == sl.Value)
-
 		}
 		if flag {
 			results = append(results, v)
@@ -957,7 +967,7 @@ func FilterSelector(data []dao.Meta, selector string) ([]dao.Meta, error) {
 	return results, nil
 }
 
-// Selector
+// Selector filter structure
 type Selector struct {
 	Key   string
 	Value string
@@ -1002,8 +1012,6 @@ func SplitSelectorParameters(args string) ([]Selector, error) {
 			sel.Exist = true
 			results = append(results, sel)
 		}
-
 	}
 	return results, nil
-
 }
