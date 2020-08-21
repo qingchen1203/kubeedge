@@ -46,12 +46,7 @@ import (
 var (
 	debugGetLong = `
 Prints a table of the most important information about the specified resource from the local database of the edge node.`
-	debugGetShort = `
-Get and format data of available resource types in the local database of the edge node.`
 	debugGetExample = `
-# List all pod
-keadm debug get pod -A
-
 # List all pod in namespace test
 keadm debug get pod -n test
 
@@ -100,7 +95,7 @@ func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "get",
-		Short:   debugGetShort,
+		Short:   "Display one or many resources",
 		Long:    debugGetLong,
 		Example: debugGetExample,
 		Run: func(cmd *cobra.Command, args []string) {
