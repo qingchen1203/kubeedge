@@ -73,17 +73,14 @@ func ValidateModuleEdged(e v1alpha1.Edged) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("CGroupDriver"), e.CGroupDriver,
 			"CGroupDriver value error"))
 	}
-	if e.MaxPods < 0 {
+	if e.MaxPods <= 0 {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("MaxPods"), e.MaxPods,
 			"MaxPods value error"))
 	}
 	if e.SystemReserved != nil {
 		var reservedValue resource.Quantity
 		var validateValue resource.Quantity
-		if e.SystemReserved["cpu"] == "" {
-			allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReserved[cpu]"), e.SystemReserved["cpu"],
-				"SystemReserved[cpu] value error"))
-		} else {
+		if e.SystemReserved["cpu"] != "" {
 			reservedValue = resource.MustParse(e.SystemReserved["cpu"])
 			validateValue = resource.MustParse("0m")
 			if reservedValue.Cmp(validateValue) < 0 {
@@ -92,10 +89,7 @@ func ValidateModuleEdged(e v1alpha1.Edged) field.ErrorList {
 			}
 		}
 
-		if e.SystemReserved["memory"] == "" {
-			allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReserved[memory]"), e.SystemReserved["memory"],
-				"SystemReserved[memory] value error"))
-		} else {
+		if e.SystemReserved["memory"] != "" {
 			reservedValue = resource.MustParse(e.SystemReserved["memory"])
 			validateValue = resource.MustParse("0Mi")
 			if reservedValue.Cmp(validateValue) < 0 {
@@ -103,19 +97,12 @@ func ValidateModuleEdged(e v1alpha1.Edged) field.ErrorList {
 					"SystemReserved[memory] value less than 0Mi"))
 			}
 		}
-		if e.SystemReservedCgroup == "" {
-			allErrs = append(allErrs, field.Invalid(field.NewPath("SystemReservedCgroup"), e.SystemReservedCgroup,
-				"systemReservedCgroup must be specified when setting system-reserved"))
-		}
 	}
 	if e.KubeReserved != nil {
 		var reservedValue resource.Quantity
 		var validateValue resource.Quantity
 
-		if e.KubeReserved["cpu"] == "" {
-			allErrs = append(allErrs, field.Invalid(field.NewPath("KubeReserved[cpu]"), e.KubeReserved["cpu"],
-				"KubeReserved[cpu] value error"))
-		} else {
+		if e.KubeReserved["cpu"] != "" {
 			reservedValue = resource.MustParse(e.KubeReserved["cpu"])
 			validateValue = resource.MustParse("0m")
 			if reservedValue.Cmp(validateValue) < 0 {
@@ -123,20 +110,13 @@ func ValidateModuleEdged(e v1alpha1.Edged) field.ErrorList {
 					"KubeReserved[cpu] value less than 0m"))
 			}
 		}
-		if e.KubeReserved["memory"] == "" {
-			allErrs = append(allErrs, field.Invalid(field.NewPath("KubeReserved[memory]"), e.KubeReserved["memory"],
-				"KubeReserved[memory] value error"))
-		} else {
+		if e.KubeReserved["memory"] != "" {
 			reservedValue = resource.MustParse(e.KubeReserved["memory"])
 			validateValue = resource.MustParse("0Mi")
 			if reservedValue.Cmp(validateValue) < 0 {
 				allErrs = append(allErrs, field.Invalid(field.NewPath("KubeReserved[memory]"), e.KubeReserved["memory"],
 					"KubeReserved[memory] value less than 0Mi"))
 			}
-		}
-		if e.KubeReservedCgroup == "" {
-			allErrs = append(allErrs, field.Invalid(field.NewPath("KubeReservedCgroup"), e.KubeReservedCgroup,
-				"kubeReservedCgroup must be specified when setting system-reserved"))
 		}
 	}
 	if !e.CgroupsPerQOS && len(e.EnforceNodeAllocatable) > 0 {

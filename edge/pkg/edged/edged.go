@@ -602,14 +602,18 @@ func newEdged(enable bool) (*edged, error) {
 			v1.ResourceCPU:    resource.MustParse(edgedconfig.Config.SystemReserved["cpu"]),
 			v1.ResourceMemory: resource.MustParse(edgedconfig.Config.SystemReserved["memory"]),
 		}
-		nodeAllocatableConfig.SystemReservedCgroupName = edgedconfig.Config.SystemReservedCgroup
+		if edgedconfig.Config.SystemReservedCgroup != "" {
+			nodeAllocatableConfig.SystemReservedCgroupName = edgedconfig.Config.SystemReservedCgroup
+		}
 	}
 	if edgedconfig.Config.KubeReserved != nil {
 		nodeAllocatableConfig.KubeReserved = v1.ResourceList{
 			v1.ResourceCPU:    resource.MustParse(edgedconfig.Config.KubeReserved["cpu"]),
 			v1.ResourceMemory: resource.MustParse(edgedconfig.Config.KubeReserved["memory"]),
 		}
-		nodeAllocatableConfig.KubeReservedCgroupName = edgedconfig.Config.KubeReservedCgroup
+		if edgedconfig.Config.KubeReservedCgroup != "" {
+			nodeAllocatableConfig.KubeReservedCgroupName = edgedconfig.Config.KubeReservedCgroup
+		}
 	}
 	if len(edgedconfig.Config.EnforceNodeAllocatable) > 0 {
 		nodeAllocatableConfig.EnforceNodeAllocatable = sets.NewString(edgedconfig.Config.EnforceNodeAllocatable...)
