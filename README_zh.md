@@ -71,10 +71,10 @@ KubeEdge 由以下组件构成:
 
 |                         | Golang 1.11     | Golang 1.12     | Golang 1.13     | Golang 1.14     |
 |-------------------------|-----------------|-----------------|-----------------|-----------------|
-| KubeEdge 1.2            | ✗               | ✓               | ✓               | ✓              |
-| KubeEdge 1.3            | ✗               | ✓               | ✓               | ✓              |
-| KubeEdge 1.4            | ✗               | ✗               | ✓               | ✓              |
-| KubeEdge HEAD (master)  | ✗               | ✗               | ✓               | ✓              |
+| KubeEdge 1.2            | ✗               | ✓               | ✓               | ✓               |
+| KubeEdge 1.3            | ✗               | ✓               | ✓               | ✓               |
+| KubeEdge 1.4            | ✗               | ✗               | ✗               | ✓               |
+| KubeEdge HEAD (master)  | ✗               | ✗               | ✗               | ✓               |
 
 ## 使用
 
@@ -106,9 +106,8 @@ KubeEdge 由以下组件构成:
 
 ## 支持
 
-<!--
-如果您需要支持，请从 [故障排除指南] 开始，然后按照我们概述的流程进行操作。
--->
+如果您需要支持，请从 [故障排除指南](./docs/troubleshooting.md) 开始，然后按照我们概述的流程进行操作。
+
 如果您有任何疑问，请以下方式与我们联系：
 
 - [mailing list](https://groups.google.com/forum/#!forum/kubeedge)

@@ -21,6 +21,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -93,7 +94,9 @@ func addJoinOtherFlags(cmd *cobra.Command, joinOptions *types.JoinOptions) {
 	cmd.Flags().StringVarP(&joinOptions.CloudCoreIPPort, types.CloudCoreIPPort, "e", joinOptions.CloudCoreIPPort,
 		"IP:Port address of KubeEdge CloudCore")
 
-	cmd.MarkFlagRequired(types.CloudCoreIPPort)
+	if err := cmd.MarkFlagRequired(types.CloudCoreIPPort); err != nil {
+		fmt.Printf("mark flag required failed with error: %v\n", err)
+	}
 
 	cmd.Flags().StringVarP(&joinOptions.RuntimeType, types.RuntimeType, "r", joinOptions.RuntimeType,
 		"Container runtime type")
@@ -148,7 +151,7 @@ func Add2ToolsList(toolList map[string]types.ToolsInstaller, flagData map[string
 	}
 	toolList["KubeEdge"] = &util.KubeEdgeInstTool{
 		Common: util.Common{
-			ToolVersion: kubeVer,
+			ToolVersion: semver.MustParse(kubeVer),
 		},
 		CloudCoreIP:           joinOptions.CloudCoreIPPort,
 		EdgeNodeName:          joinOptions.EdgeNodeName,

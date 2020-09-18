@@ -100,7 +100,9 @@ func Run(opt *options.AdmissionOptions) {
 		TLSConfig: configTLS(opt, restConfig),
 	}
 
-	server.ListenAndServeTLS("", "")
+	if err := server.ListenAndServeTLS("", ""); err != nil {
+		klog.Fatalf("Start server failed with error: %v", err)
+	}
 }
 
 // configTLS is a helper function that generate tls certificates from directly defined tls config or kubeconfig
@@ -168,11 +170,8 @@ func (ac *AdmissionController) registerWebhooks(opt *options.AdmissionOptions, c
 		},
 	}
 
-	if err := registerValidateWebhook(ac.Client.AdmissionregistrationV1beta1().ValidatingWebhookConfigurations(),
-		[]admissionregistrationv1beta1.ValidatingWebhookConfiguration{deviceModelCRDWebhook}); err != nil {
-		return err
-	}
-	return nil
+	return registerValidateWebhook(ac.Client.AdmissionregistrationV1beta1().ValidatingWebhookConfigurations(),
+		[]admissionregistrationv1beta1.ValidatingWebhookConfiguration{deviceModelCRDWebhook})
 }
 
 func registerValidateWebhook(client admissionregistrationv1beta1client.ValidatingWebhookConfigurationInterface,
