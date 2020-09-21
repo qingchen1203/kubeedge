@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
-	"k8s.io/kubectl/pkg/scheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	k8sprinters "k8s.io/kubernetes/pkg/printers"
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
@@ -106,7 +105,7 @@ func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
 			if err := getOption.Validate(args); err != nil {
 				CheckErr(err, fatal)
 			}
-			if err := getOption.ExecuteGet(args, out); err != nil {
+			if err := getOption.Run(args, out); err != nil {
 				CheckErr(err, fatal)
 			}
 		},
@@ -202,12 +201,11 @@ func (g *GetOptions) Validate(args []string) error {
 	return nil
 }
 
-// ExecuteGet performs the get operation.
-func (g *GetOptions) ExecuteGet(args []string, out io.Writer) error {
+// Run performs the get operation.
+func (g *GetOptions) Run(args []string, out io.Writer) error {
 	resType := args[0]
 	resNames := args[1:]
-	//results, err := QueryMetaFromDatabase(g.AllNamespace, g.Namespace, resType, resNames)
-	results, err := g.QueryDataFromDatabase(availableResources[resType], resNames)
+	results, err := g.queryDataFromDatabase(availableResources[resType], resNames)
 	if err != nil {
 		return err
 	}
@@ -223,7 +221,6 @@ func (g *GetOptions) ExecuteGet(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	printer, err = printers.NewTypeSetter(scheme.Scheme).WrapToPrinter(printer, nil)
 
 	if len(results) == 0 {
 		if _, err := fmt.Fprintf(out, "No resources found in %v namespace.\n", g.Namespace); err != nil {
@@ -858,7 +855,7 @@ func InitDB(driverName, dbName, dataSource string) error {
 	return nil
 }
 
-func (g *GetOptions) QueryDataFromDatabase(resType string, resNames []string) ([]dao.Meta, error) {
+func (g *GetOptions) queryDataFromDatabase(resType string, resNames []string) ([]dao.Meta, error) {
 	var datas []dao.Meta
 
 	switch resType {
@@ -901,7 +898,7 @@ func (g *GetOptions) QueryDataFromDatabase(resType string, resNames []string) ([
 			datas = append(datas, value...)
 		}
 	default:
-		return nil, fmt.Errorf("Query from database filed, type: %v,namespaces: %v. ", resType, g.Namespace)
+		return nil, fmt.Errorf("Query resource type: %v in namespaces: %v failed. ", resType, g.Namespace)
 
 	}
 
@@ -1032,75 +1029,12 @@ func IsExistName(resNames []string, name string) bool {
 	return value
 }
 
-// QueryMetaFromDatabase Filter data from the database based on conditions
-func QueryMetaFromDatabase(isAllNamespace bool, resNamePaces string, resType string, resNames []string) ([]dao.Meta, error) {
-	var results []dao.Meta
-
-	if isAllNamespace {
-		if resType == ResourceTypeAll || len(resNames) == 0 {
-			results, err := dao.QueryMetaByRaw(
-				fmt.Sprintf("select * from %v where %v.type in (%v)",
-					dao.MetaTableName,
-					dao.MetaTableName,
-					availableResources[resType]))
-			if err != nil {
-				return nil, err
-			}
-
-			return results, nil
-		}
-		for _, resName := range resNames {
-			result, err := dao.QueryMetaByRaw(
-				fmt.Sprintf("select * from %v where %v.key like '%%/%v/%v'",
-					dao.MetaTableName,
-					dao.MetaTableName,
-					strings.ReplaceAll(availableResources[resType], "'", ""),
-					resName))
-			if err != nil {
-				return nil, err
-			}
-			results = append(results, result...)
-		}
-
-		return results, nil
-	}
-	if resType == ResourceTypeAll || len(resNames) == 0 {
-		results, err := dao.QueryMetaByRaw(
-			fmt.Sprintf("select * from %v where %v.key like '%v/%%' and  %v.type in (%v)",
-				dao.MetaTableName,
-				dao.MetaTableName,
-				resNamePaces,
-				dao.MetaTableName,
-				availableResources[resType]))
-		if err != nil {
-			return nil, err
-		}
-
-		return results, nil
-	}
-	for _, resName := range resNames {
-		result, err := dao.QueryMetaByRaw(
-			fmt.Sprintf("select * from %v where %v.key = '%v/%v/%v'",
-				dao.MetaTableName,
-				dao.MetaTableName,
-				resNamePaces,
-				strings.ReplaceAll(availableResources[resType], "'", ""),
-				resName))
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result...)
-	}
-
-	return results, nil
-}
-
 // FilterSelector Filter data that meets the selector
 func FilterSelector(data []dao.Meta, selector string) ([]dao.Meta, error) {
 	var results []dao.Meta
 	var jsonValue = make(map[string]interface{})
 
-	sLabels, err := SplitSelectorParameters(selector)
+	selectors, err := SplitSelectorParameters(selector)
 	if err != nil {
 		return nil, err
 	}
@@ -1109,18 +1043,18 @@ func FilterSelector(data []dao.Meta, selector string) ([]dao.Meta, error) {
 		if err != nil {
 			return nil, err
 		}
-		vLabel := jsonValue["metadata"].(map[string]interface{})["labels"]
-		if vLabel == nil {
+		labels := jsonValue["metadata"].(map[string]interface{})["labels"]
+		if labels == nil {
 			results = append(results, v)
 			continue
 		}
 		flag := true
-		for _, sl := range sLabels {
-			if !sl.Exist {
-				flag = flag && vLabel.(map[string]interface{})[sl.Key] != sl.Value
+		for _, v := range selectors {
+			if !v.Exist {
+				flag = flag && labels.(map[string]interface{})[v.Key] != v.Value
 				continue
 			}
-			flag = flag && (vLabel.(map[string]interface{})[sl.Key] == sl.Value)
+			flag = flag && (labels.(map[string]interface{})[v.Key] == v.Value)
 		}
 		if flag {
 			results = append(results, v)
