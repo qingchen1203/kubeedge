@@ -871,7 +871,7 @@ func InitDB(driverName, dbName, dataSource string) error {
 
 func (g *GetOptions) QueryDataFromDatabase(resType string, resNames []string) ([]dao.Meta, error) {
 	var datas []dao.Meta
-
+	fmt.Printf("type: %v, names: %v", resType, resNames)
 	switch resType {
 	case model.ResourceTypePod:
 		pods, err := g.getPodsFromDatabase(g.Namespace, resNames)
@@ -933,7 +933,7 @@ func (g *GetOptions) getPodsFromDatabase(resNS string, resNames []string) ([]dao
 		if namespaceParsed != resNS && !g.AllNamespace {
 			continue
 		}
-		if !IsExistName(resNames, v.Key) {
+		if len(resNames) > 0 && !IsExistName(resNames, v.Key) {
 			continue
 		}
 
@@ -983,7 +983,7 @@ func (g *GetOptions) getNodeFromDatabase(resNS string, resNames []string) ([]dao
 		if namespaceParsed != resNS && !g.AllNamespace {
 			continue
 		}
-		if !IsExistName(resNames, v.Key) {
+		if len(resNames) > 0 && !IsExistName(resNames, v.Key) {
 			continue
 		}
 
@@ -1031,7 +1031,7 @@ func (g *GetOptions) getSingleResourceFromDatabase(resNS string, resNames []stri
 		if namespaceParsed != resNS && !g.AllNamespace {
 			continue
 		}
-		if !IsExistName(resNames, v.Key) {
+		if len(resNames) > 0 && !IsExistName(resNames, v.Key) {
 			continue
 		}
 		results = append(results, v)
