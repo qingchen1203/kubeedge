@@ -47,16 +47,10 @@ import (
 )
 
 const (
-	ResourceTypeAll       = "all"
-	ResourceTypePod       = "pod"
-	ResourceTypeService   = "service"
-	ResourceTypeSecret    = "secret"
-	ResourceTypeConfigmap = "configmap"
-	ResourceTypeEndpoints = "endpoints"
-
-	OutputFormatWIDE = "wide"
-	OutputFormatJSON = "json"
-	OutputFormatYAML = "yaml"
+	// DefaultErrorExitCode defines exit the code for failed action generally
+	DefaultErrorExitCode = 1
+	// ResourceTypeAll defines resource type all
+	ResourceTypeAll = "all"
 )
 
 var (
@@ -75,32 +69,26 @@ keadm debug get configmap web -n default -o yaml
 # List the complete information of all available resources of edge nodes using the specified format (default: yaml)
 keadm debug get all -o yaml`
 
-	// allowedFormats Currently supports formats such as yaml|json|wide
-	allowedFormats = []string{OutputFormatYAML, OutputFormatJSON, OutputFormatWIDE}
-
 	// availableResources Convert flag to currently supports available Resource types in EdgeCore database.
 	availableResources = map[string]string{
-		"all":        "'pod','service','secret','configmap','endpoints'",
-		"po":         "'pod'",
-		"pod":        "'pod'",
-		"pods":       "'pod'",
-		"svc":        "'service'",
-		"service":    "'service'",
-		"services":   "'service'",
-		"secret":     "'secret'",
-		"secrets":    "'secret'",
-		"cm":         "'configmap'",
-		"configmap":  "'configmap'",
-		"configmaps": "'configmap'",
-		"ep":         "'endpoints'",
-		"endpoint":   "'endpoints'",
-		"endpoints":  "'endpoints'",
+		"all":        ResourceTypeAll,
+		"po":         model.ResourceTypePod,
+		"pod":        model.ResourceTypePod,
+		"pods":       model.ResourceTypePod,
+		"no":         model.ResourceTypeNode,
+		"node":       model.ResourceTypeNode,
+		"svc":        constants.ResourceTypeService,
+		"service":    constants.ResourceTypeService,
+		"services":   constants.ResourceTypeService,
+		"secret":     model.ResourceTypeSecret,
+		"secrets":    model.ResourceTypeSecret,
+		"cm":         model.ResourceTypeConfigmap,
+		"configmap":  model.ResourceTypeConfigmap,
+		"configmaps": model.ResourceTypeConfigmap,
+		"ep":         constants.ResourceTypeEndpoints,
+		"endpoint":   constants.ResourceTypeEndpoints,
+		"endpoints":  constants.ResourceTypeEndpoints,
 	}
-)
-
-const (
-	// DefaultErrorExitCode defines exit the code for failed action generally
-	DefaultErrorExitCode = 1
 )
 
 // NewCmdDebugGet returns keadm debug get command.
@@ -203,7 +191,7 @@ func (g *GetOptions) Validate(args []string) error {
 	if len(*g.PrintFlags.OutputFormat) > 0 {
 		format := strings.ToLower(*g.PrintFlags.OutputFormat)
 		g.PrintFlags.OutputFormat = &format
-		if !IsAllowedFormat(*g.PrintFlags.OutputFormat) {
+		if !g.IsAllowedFormat(*g.PrintFlags.OutputFormat) {
 			return fmt.Errorf("Invalid output format: %v, currently supports formats such as yaml|json|wide. ", *g.PrintFlags.OutputFormat)
 		}
 	}
@@ -219,7 +207,7 @@ func (g *GetOptions) ExecuteGet(args []string, out io.Writer) error {
 	resType := args[0]
 	resNames := args[1:]
 	//results, err := QueryMetaFromDatabase(g.AllNamespace, g.Namespace, resType, resNames)
-	results, err := g.QueryDataFromDatabase(resType, resNames)
+	results, err := g.QueryDataFromDatabase(availableResources[resType], resNames)
 	if err != nil {
 		return err
 	}
@@ -243,7 +231,7 @@ func (g *GetOptions) ExecuteGet(args []string, out io.Writer) error {
 		}
 		return nil
 	}
-	if *g.PrintFlags.OutputFormat == "" || *g.PrintFlags.OutputFormat == OutputFormatWIDE {
+	if *g.PrintFlags.OutputFormat == "" || *g.PrintFlags.OutputFormat == "wide" {
 		return HumanReadablePrint(results, printer, out)
 	}
 
@@ -528,7 +516,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 
 	for _, v := range results {
 		switch v.Type {
-		case ResourceTypePod:
+		case model.ResourceTypePod:
 			pod := api.Pod{}
 
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
@@ -559,7 +547,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			pod.Kind = v.Type
 			podList.Items = append(podList.Items, pod)
 
-		case ResourceTypeService:
+		case constants.ResourceTypeService:
 			svc := api.Service{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -588,7 +576,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			svc.APIVersion = "v1"
 			svc.Kind = v.Type
 			serviceList.Items = append(serviceList.Items, svc)
-		case ResourceTypeSecret:
+		case model.ResourceTypeSecret:
 			secret := api.Secret{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -617,7 +605,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			secret.APIVersion = "v1"
 			secret.Kind = v.Type
 			secretList.Items = append(secretList.Items, secret)
-		case ResourceTypeConfigmap:
+		case model.ResourceTypeConfigmap:
 			cmp := api.ConfigMap{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -639,7 +627,7 @@ func ParseMetaToAPIList(results []dao.Meta) (*api.PodList, *api.ServiceList, *ap
 			cmp.APIVersion = "v1"
 			cmp.Kind = v.Type
 			configMapList.Items = append(configMapList.Items, cmp)
-		case ResourceTypeEndpoints:
+		case constants.ResourceTypeEndpoints:
 			ep := api.Endpoints{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -683,7 +671,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 
 	for _, v := range results {
 		switch v.Type {
-		case ResourceTypePod:
+		case model.ResourceTypePod:
 			pod := v1.Pod{}
 
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
@@ -714,7 +702,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			pod.Kind = v.Type
 			podList.Items = append(podList.Items, pod)
 
-		case ResourceTypeService:
+		case constants.ResourceTypeService:
 			svc := v1.Service{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -743,7 +731,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			svc.APIVersion = "v1"
 			svc.Kind = v.Type
 			serviceList.Items = append(serviceList.Items, svc)
-		case ResourceTypeSecret:
+		case model.ResourceTypeSecret:
 			secret := v1.Secret{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -772,7 +760,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			secret.APIVersion = "v1"
 			secret.Kind = v.Type
 			secretList.Items = append(secretList.Items, secret)
-		case ResourceTypeConfigmap:
+		case model.ResourceTypeConfigmap:
 			cmp := v1.ConfigMap{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -794,7 +782,7 @@ func ParseMetaToV1List(results []dao.Meta) (*v1.PodList, *v1.ServiceList, *v1.Se
 			cmp.APIVersion = "v1"
 			cmp.Kind = v.Type
 			configMapList.Items = append(configMapList.Items, cmp)
-		case ResourceTypeEndpoints:
+		case constants.ResourceTypeEndpoints:
 			ep := v1.Endpoints{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return nil, nil, nil, nil, nil, err
@@ -832,9 +820,10 @@ func IsFileExist(path string) bool {
 }
 
 // IsAllowedFormat verification support format
-func IsAllowedFormat(oFormat string) bool {
-	for _, aFormat := range allowedFormats {
-		if oFormat == aFormat {
+func (g *GetOptions) IsAllowedFormat(f string) bool {
+	allowedFormats := g.PrintFlags.AllowedFormats()
+	for _, v := range allowedFormats {
+		if f == v {
 			return true
 		}
 	}
@@ -871,7 +860,7 @@ func InitDB(driverName, dbName, dataSource string) error {
 
 func (g *GetOptions) QueryDataFromDatabase(resType string, resNames []string) ([]dao.Meta, error) {
 	var datas []dao.Meta
-	fmt.Printf("type: %v, names: %v", resType, resNames)
+
 	switch resType {
 	case model.ResourceTypePod:
 		pods, err := g.getPodsFromDatabase(g.Namespace, resNames)
@@ -950,14 +939,10 @@ func (g *GetOptions) getPodsFromDatabase(resNS string, resNames []string) ([]dao
 		if err := json.Unmarshal([]byte(v.Value), &podJSON); err != nil {
 			return nil, err
 		}
-		podStatus, err := json.Marshal(*podStatusRecords)
-		if err != nil {
+		if err := json.Unmarshal([]byte((*podStatusRecords)[0]), &podStatusJSON); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(podStatus, &podStatusJSON); err != nil {
-			return nil, err
-		}
-		podJSON["status"] = podStatusJSON["status"]
+		podJSON["Status"] = podStatusJSON["Status"]
 		data, err := json.Marshal(podJSON)
 		if err != nil {
 			return nil, err
@@ -1000,14 +985,10 @@ func (g *GetOptions) getNodeFromDatabase(resNS string, resNames []string) ([]dao
 		if err := json.Unmarshal([]byte(v.Value), &nodeJSON); err != nil {
 			return nil, err
 		}
-		nodeStatus, err := json.Marshal(*nodeStatusRecords)
-		if err != nil {
+		if err := json.Unmarshal([]byte((*nodeStatusRecords)[0]), &nodeStatusJSON); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(nodeStatus, &nodeStatusJSON); err != nil {
-			return nil, err
-		}
-		nodeJSON["status"] = nodeStatusJSON["status"]
+		nodeJSON["Status"] = nodeStatusJSON["Status"]
 		data, err := json.Marshal(nodeJSON)
 		if err != nil {
 			return nil, err
