@@ -38,6 +38,9 @@ import (
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
 	"k8s.io/kubernetes/pkg/printers/storage"
 
+	"github.com/kubeedge/beehive/pkg/common/util"
+	"github.com/kubeedge/beehive/pkg/core/model"
+	"github.com/kubeedge/kubeedge/common/constants"
 	"github.com/kubeedge/kubeedge/edge/pkg/common/dbm"
 	"github.com/kubeedge/kubeedge/edge/pkg/metamanager/dao"
 	edgecoreCfg "github.com/kubeedge/kubeedge/pkg/apis/componentconfig/edgecore/v1alpha1"
@@ -115,7 +118,7 @@ func NewCmdDebugGet(out io.Writer, getOption *GetOptions) *cobra.Command {
 			if err := getOption.Validate(args); err != nil {
 				CheckErr(err, fatal)
 			}
-			if err := ExecuteGet(getOption, args, out); err != nil {
+			if err := getOption.ExecuteGet(args, out); err != nil {
 				CheckErr(err, fatal)
 			}
 		},
@@ -153,7 +156,6 @@ func CheckErr(err error, handleErr func(string, int)) {
 type GetOptions struct {
 	AllNamespace  bool
 	Namespace     string
-	OutputFormat  string
 	LabelSelector string
 	DataPath      string
 
@@ -163,7 +165,7 @@ type GetOptions struct {
 // addGetOtherFlags
 func addGetOtherFlags(cmd *cobra.Command, getOption *GetOptions) {
 	cmd.Flags().StringVarP(&getOption.Namespace, "namespace", "n", getOption.Namespace, "List the requested object(s) in specified namespaces")
-	cmd.Flags().StringVarP(&getOption.OutputFormat, "output", "o", getOption.OutputFormat, "Indicate the output format. Currently supports formats such as yaml|json|wide")
+	cmd.Flags().StringVarP(getOption.PrintFlags.OutputFormat, "output", "o", *getOption.PrintFlags.OutputFormat, "Indicate the output format. Currently supports formats such as yaml|json|wide")
 	cmd.Flags().StringVarP(&getOption.LabelSelector, "selector", "l", getOption.LabelSelector, "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
 	cmd.Flags().StringVarP(&getOption.DataPath, "input", "i", getOption.DataPath, "Indicate the edge node database path, the default path is \"/var/lib/kubeedge/edgecore.db\"")
 	cmd.Flags().BoolVarP(&getOption.AllNamespace, "all-namespaces", "A", getOption.AllNamespace, "List the requested object(s) across all namespaces")
@@ -195,18 +197,16 @@ func (g *GetOptions) Validate(args []string) error {
 		return fmt.Errorf("EdgeCore database file %v not exist. ", g.DataPath)
 	}
 
-	err := InitDB(edgecoreCfg.DataBaseDriverName, edgecoreCfg.DataBaseAliasName, g.DataPath)
-	if err != nil {
+	if err := InitDB(edgecoreCfg.DataBaseDriverName, edgecoreCfg.DataBaseAliasName, g.DataPath); err != nil {
 		return fmt.Errorf("Failed to initialize database: %v ", err)
 	}
-	if len(g.OutputFormat) > 0 {
-		g.OutputFormat = strings.ToLower(g.OutputFormat)
-		if !IsAllowedFormat(g.OutputFormat) {
-			return fmt.Errorf("Invalid output format: %v, currently supports formats such as yaml|json|wide. ", g.OutputFormat)
+	if len(*g.PrintFlags.OutputFormat) > 0 {
+		format := strings.ToLower(*g.PrintFlags.OutputFormat)
+		g.PrintFlags.OutputFormat = &format
+		if !IsAllowedFormat(*g.PrintFlags.OutputFormat) {
+			return fmt.Errorf("Invalid output format: %v, currently supports formats such as yaml|json|wide. ", *g.PrintFlags.OutputFormat)
 		}
 	}
-	g.PrintFlags.OutputFormat = &g.OutputFormat
-
 	if args[0] == ResourceTypeAll && len(args) >= 2 {
 		return fmt.Errorf("You must specify only one resource. ")
 	}
@@ -215,35 +215,35 @@ func (g *GetOptions) Validate(args []string) error {
 }
 
 // ExecuteGet performs the get operation.
-func ExecuteGet(opts *GetOptions, args []string, out io.Writer) error {
+func (g *GetOptions) ExecuteGet(args []string, out io.Writer) error {
 	resType := args[0]
 	resNames := args[1:]
-	results, err := QueryMetaFromDatabase(opts.AllNamespace, opts.Namespace, resType, resNames)
+	//results, err := QueryMetaFromDatabase(g.AllNamespace, g.Namespace, resType, resNames)
+	results, err := g.QueryDataFromDatabase(resType, resNames)
 	if err != nil {
 		return err
 	}
 
-	if len(opts.LabelSelector) > 0 {
-		results, err = FilterSelector(results, opts.LabelSelector)
+	if len(g.LabelSelector) > 0 {
+		results, err = FilterSelector(results, g.LabelSelector)
 		if err != nil {
 			return err
 		}
 	}
 
-	opts.PrintFlags.OutputFormat = &opts.OutputFormat
-	printer, err := opts.PrintFlags.ToPrinter()
+	printer, err := g.PrintFlags.ToPrinter()
 	if err != nil {
 		return err
 	}
 	printer, err = printers.NewTypeSetter(scheme.Scheme).WrapToPrinter(printer, nil)
 
 	if len(results) == 0 {
-		if _, err := fmt.Fprintf(out, "No resources found in %v namespace.\n", opts.Namespace); err != nil {
+		if _, err := fmt.Fprintf(out, "No resources found in %v namespace.\n", g.Namespace); err != nil {
 			return err
 		}
 		return nil
 	}
-	if opts.OutputFormat == "" || opts.OutputFormat == OutputFormatWIDE {
+	if *g.PrintFlags.OutputFormat == "" || *g.PrintFlags.OutputFormat == OutputFormatWIDE {
 		return HumanReadablePrint(results, printer, out)
 	}
 
@@ -867,6 +867,188 @@ func InitDB(driverName, dbName, dataSource string) error {
 		return fmt.Errorf("Using db access error %v ", err)
 	}
 	return nil
+}
+
+func (g *GetOptions) QueryDataFromDatabase(resType string, resNames []string) ([]dao.Meta, error) {
+	var datas []dao.Meta
+
+	switch resType {
+	case model.ResourceTypePod:
+		pods, err := g.getPodsFromDatabase(g.Namespace, resNames)
+		if err != nil {
+			return nil, err
+		}
+		datas = append(datas, pods...)
+	case model.ResourceTypeNode:
+		node, err := g.getNodeFromDatabase(g.Namespace, resNames)
+		if err != nil {
+			return nil, err
+		}
+		datas = append(datas, node...)
+	case model.ResourceTypeConfigmap, model.ResourceTypeSecret, constants.ResourceTypeEndpoints, constants.ResourceTypeService:
+		value, err := g.getSingleResourceFromDatabase(g.Namespace, resNames, resType)
+		if err != nil {
+			return nil, err
+		}
+		datas = append(datas, value...)
+	case ResourceTypeAll:
+		pods, err := g.getPodsFromDatabase(g.Namespace, resNames)
+		if err != nil {
+			return nil, err
+		}
+		datas = append(datas, pods...)
+		node, err := g.getNodeFromDatabase(g.Namespace, resNames)
+		if err != nil {
+			return nil, err
+		}
+		datas = append(datas, node...)
+
+		resTypes := []string{model.ResourceTypeConfigmap, model.ResourceTypeSecret, constants.ResourceTypeEndpoints, constants.ResourceTypeService}
+		for _, v := range resTypes {
+			value, err := g.getSingleResourceFromDatabase(g.Namespace, resNames, v)
+			if err != nil {
+				return nil, err
+			}
+			datas = append(datas, value...)
+		}
+	default:
+		return nil, fmt.Errorf("Query from database filed, type: %v,namespaces: %v. ", resType, g.Namespace)
+
+	}
+
+	return datas, nil
+}
+
+func (g *GetOptions) getPodsFromDatabase(resNS string, resNames []string) ([]dao.Meta, error) {
+	var results []dao.Meta
+	podJSON := make(map[string]interface{})
+	podStatusJSON := make(map[string]interface{})
+
+	podRecords, err := dao.QueryAllMeta("type", model.ResourceTypePod)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range *podRecords {
+		namespaceParsed, _, _, _ := util.ParseResourceEdge(v.Key, model.QueryOperation)
+		if namespaceParsed != resNS && !g.AllNamespace {
+			continue
+		}
+		if !IsExistName(resNames, v.Key) {
+			continue
+		}
+
+		podKey := strings.Replace(v.Key, constants.ResourceSep+model.ResourceTypePod+constants.ResourceSep,
+			constants.ResourceSep+model.ResourceTypePodStatus+constants.ResourceSep, 1)
+		podStatusRecords, err := dao.QueryMeta("key", podKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(*podStatusRecords) <= 0 {
+			results = append(results, v)
+			continue
+		}
+		if err := json.Unmarshal([]byte(v.Value), &podJSON); err != nil {
+			return nil, err
+		}
+		podStatus, err := json.Marshal(*podStatusRecords)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(podStatus, &podStatusJSON); err != nil {
+			return nil, err
+		}
+		podJSON["status"] = podStatusJSON["status"]
+		data, err := json.Marshal(podJSON)
+		if err != nil {
+			return nil, err
+		}
+		v.Value = string(data)
+		results = append(results, v)
+	}
+
+	return results, nil
+}
+
+func (g *GetOptions) getNodeFromDatabase(resNS string, resNames []string) ([]dao.Meta, error) {
+	var results []dao.Meta
+	nodeJSON := make(map[string]interface{})
+	nodeStatusJSON := make(map[string]interface{})
+
+	nodeRecords, err := dao.QueryAllMeta("type", model.ResourceTypeNode)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range *nodeRecords {
+		namespaceParsed, _, _, _ := util.ParseResourceEdge(v.Key, model.QueryOperation)
+		if namespaceParsed != resNS && !g.AllNamespace {
+			continue
+		}
+		if !IsExistName(resNames, v.Key) {
+			continue
+		}
+
+		nodeKey := strings.Replace(v.Key, constants.ResourceSep+model.ResourceTypeNode+constants.ResourceSep,
+			constants.ResourceSep+model.ResourceTypeNodeStatus+constants.ResourceSep, 1)
+		nodeStatusRecords, err := dao.QueryMeta("key", nodeKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(*nodeStatusRecords) <= 0 {
+			results = append(results, v)
+			continue
+		}
+		if err := json.Unmarshal([]byte(v.Value), &nodeJSON); err != nil {
+			return nil, err
+		}
+		nodeStatus, err := json.Marshal(*nodeStatusRecords)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(nodeStatus, &nodeStatusJSON); err != nil {
+			return nil, err
+		}
+		nodeJSON["status"] = nodeStatusJSON["status"]
+		data, err := json.Marshal(nodeJSON)
+		if err != nil {
+			return nil, err
+		}
+		v.Value = string(data)
+		results = append(results, v)
+	}
+
+	return results, nil
+}
+
+func (g *GetOptions) getSingleResourceFromDatabase(resNS string, resNames []string, resType string) ([]dao.Meta, error) {
+	var results []dao.Meta
+
+	resRecords, err := dao.QueryAllMeta("type", resType)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range *resRecords {
+		namespaceParsed, _, _, _ := util.ParseResourceEdge(v.Key, model.QueryOperation)
+		if namespaceParsed != resNS && !g.AllNamespace {
+			continue
+		}
+		if !IsExistName(resNames, v.Key) {
+			continue
+		}
+		results = append(results, v)
+	}
+
+	return results, nil
+}
+
+func IsExistName(resNames []string, name string) bool {
+	value := false
+	for _, v := range resNames {
+		if strings.Index(name, v) != -1 {
+			value = true
+		}
+	}
+
+	return value
 }
 
 // QueryMetaFromDatabase Filter data from the database based on conditions
