@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
+	"k8s.io/kubectl/pkg/scheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	k8sprinters "k8s.io/kubernetes/pkg/printers"
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
@@ -221,6 +222,7 @@ func (g *GetOptions) Run(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	printer, err = printers.NewTypeSetter(scheme.Scheme).WrapToPrinter(printer, nil)
 
 	if len(results) == 0 {
 		if _, err := fmt.Fprintf(out, "No resources found in %v namespace.\n", g.Namespace); err != nil {
@@ -229,14 +231,30 @@ func (g *GetOptions) Run(args []string, out io.Writer) error {
 		return nil
 	}
 	if *g.PrintFlags.OutputFormat == "" || *g.PrintFlags.OutputFormat == "wide" {
-		apiList, err := ConvertToAPIList(results)
-		if err != nil {
-			return err
-		}
+		//apiList, err := ConvertToAPIList(results)
+		//if err != nil {
+		//	return err
+		//}
 		return HumanReadablePrint(results, printer, out)
+		//return HumanReadableprint1(apiList, printer, out)
 	}
 
 	return JSONYamlPrint(results, printer, out)
+}
+
+func HumanReadableprint1(apiList v1.List, printer printers.ResourcePrinter, out io.Writer) error {
+	for _, v := range apiList.Items {
+		talbe, err := ConvertDataToTable(v.Object)
+		if err != nil {
+			return err
+		}
+		if err := printer.PrintObj(talbe, out); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
 }
 
 func ConvertToAPIList(results []dao.Meta) (v1.List, error) {
@@ -247,7 +265,6 @@ func ConvertToAPIList(results []dao.Meta) (v1.List, error) {
 		switch v.Type {
 		case model.ResourceTypePod:
 			pod := api.Pod{}
-
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
 				return list, err
 			}
@@ -274,112 +291,140 @@ func ConvertToAPIList(results []dao.Meta) (v1.List, error) {
 			}
 			pod.APIVersion = "v1"
 			pod.Kind = v.Type
-			podList.Items = append(podList.Items, pod)
-
-		case constants.ResourceTypeService:
-			svc := v1.Service{}
+			list.Items = append(list.Items, runtime.RawExtension{Object: pod.DeepCopyObject()})
+		case model.ResourceTypeNode:
+			node := api.Node{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			metadata, err := json.Marshal(value["metadata"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			spec, err := json.Marshal(value["spec"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			status, err := json.Marshal(value["status"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
+			}
+			if err := json.Unmarshal(metadata, &node.ObjectMeta); err != nil {
+				return list, err
+			}
+			if err := json.Unmarshal(spec, &node.Spec); err != nil {
+				return list, err
+			}
+			if err := json.Unmarshal(status, &node.Status); err != nil {
+				return list, err
+			}
+			node.APIVersion = "v1"
+			node.Kind = v.Type
+			list.Items = append(list.Items, runtime.RawExtension{Object: node.DeepCopyObject()})
+		case constants.ResourceTypeService:
+			svc := api.Service{}
+			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
+				return list, err
+			}
+			metadata, err := json.Marshal(value["metadata"])
+			if err != nil {
+				return list, err
+			}
+			spec, err := json.Marshal(value["spec"])
+			if err != nil {
+				return list, err
+			}
+			status, err := json.Marshal(value["status"])
+			if err != nil {
+				return list, err
 			}
 			if err := json.Unmarshal(metadata, &svc.ObjectMeta); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(spec, &svc.Spec); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(status, &svc.Status); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			svc.APIVersion = "v1"
 			svc.Kind = v.Type
-			serviceList.Items = append(serviceList.Items, svc)
+			list.Items = append(list.Items, runtime.RawExtension{Object: svc.DeepCopyObject()})
 		case model.ResourceTypeSecret:
-			secret := v1.Secret{}
+			secret := api.Secret{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			metadata, err := json.Marshal(value["metadata"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			data, err := json.Marshal(value["data"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			typeTmp, err := json.Marshal(value["type"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(metadata, &secret.ObjectMeta); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(data, &secret.Data); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(typeTmp, &secret.Type); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			secret.APIVersion = "v1"
 			secret.Kind = v.Type
-			secretList.Items = append(secretList.Items, secret)
+			list.Items = append(list.Items, runtime.RawExtension{Object: secret.DeepCopyObject()})
 		case model.ResourceTypeConfigmap:
-			cmp := v1.ConfigMap{}
+			cmp := api.ConfigMap{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			metadata, err := json.Marshal(value["metadata"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			data, err := json.Marshal(value["data"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(metadata, &cmp.ObjectMeta); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(data, &cmp.Data); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			cmp.APIVersion = "v1"
 			cmp.Kind = v.Type
-			configMapList.Items = append(configMapList.Items, cmp)
+			list.Items = append(list.Items, runtime.RawExtension{Object: cmp.DeepCopyObject()})
 		case constants.ResourceTypeEndpoints:
 			ep := v1.Endpoints{}
 			if err := json.Unmarshal([]byte(v.Value), &value); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			metadata, err := json.Marshal(value["metadata"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			subsets, err := json.Marshal(value["subsets"])
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(metadata, &ep.ObjectMeta); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			if err := json.Unmarshal(subsets, &ep.Subsets); err != nil {
-				return nil, nil, nil, nil, nil, err
+				return list, err
 			}
 			ep.APIVersion = "v1"
 			ep.Kind = v.Type
-			endPointsList.Items = append(endPointsList.Items, ep)
+			list.Items = append(list.Items, runtime.RawExtension{Object: ep.DeepCopyObject()})
 		default:
-			return nil, nil, nil, nil, nil, fmt.Errorf("Parsing failed, unrecognized type: %v. ", v.Type)
+			return list, fmt.Errorf("Unknown type %v resolution failed. ", v.Type)
 		}
 	}
 
